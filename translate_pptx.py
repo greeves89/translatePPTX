@@ -2,12 +2,16 @@
 import sys
 import types
 import warnings
+import os
+from dotenv import load_dotenv
+
+# .env laden
+load_dotenv()
 
 # Dummy-Injektion für das cgi-Modul in Python 3.13, inkl. minimaler Implementierung von parse_header
 if sys.version_info >= (3, 13):
     warnings.warn("cgi module removed in Python 3.13; injecting dummy module with parse_header", DeprecationWarning)
     def parse_header(value):
-        # Eine einfache Implementierung: Teilt den Header in Hauptwert und Parameter
         parts = value.split(";")
         key = parts[0].strip()
         params = {}
@@ -21,54 +25,66 @@ if sys.version_info >= (3, 13):
     cgi_dummy.parse_header = parse_header
     sys.modules["cgi"] = cgi_dummy
 
-import os
 from pptx import Presentation
-from googletrans import Translator
+
+# Prüfe, ob ein DeepL-API-Key in der .env vorhanden ist
+deepl_api_key = os.getenv("DEEPL_API_KEY")
+use_deepl = bool(deepl_api_key and deepl_api_key.strip())
+
+if use_deepl:
+    import deepl
+    translator = deepl.Translator(deepl_api_key)
+    print("[INFO] DeepL API-Key gefunden. Nutze DeepL für die Übersetzung.")
+else:
+    from googletrans import Translator as GoogleTranslator
+    translator = GoogleTranslator()
+    print("[INFO] Kein DeepL API-Key gefunden. Nutze Google Translate für die Übersetzung.")
+
+def translate_text(text: str, target_language: str) -> str:
+    if not text.strip():
+        return text
+    if use_deepl:
+        try:
+            # DeepL erwartet Sprachcodes in Großbuchstaben (z.B. "EN", "DE")
+            result = translator.translate_text(text, target_lang=target_language.upper())
+            return result.text
+        except Exception as e:
+            print(f"[ERROR] DeepL-Übersetzung fehlgeschlagen für '{text}': {e}")
+            return text
+    else:
+        try:
+            result = translator.translate(text, dest=target_language)
+            return result.text
+        except Exception as e:
+            print(f"[ERROR] Google Translate fehlgeschlagen für '{text}': {e}")
+            return text
 
 def translate_pptx(input_path: str, target_language: str, output_path: str = None):
-    """
-    Liest eine PPTX-Datei ein, übersetzt den Text aller Slides in die angegebene Sprache und speichert eine neue Datei.
-    
-    Args:
-        input_path: Pfad zur Eingabe-PPTX-Datei.
-        target_language: Sprachcode der Zielsprache (z. B. "de" für Deutsch, "en" für Englisch).
-        output_path: Optionaler Pfad zur Ausgabedatei. Falls nicht angegeben, wird der Dateiname mit "_translated" ergänzt.
-    """
     print(f"[INFO] Starte Übersetzung der Datei: {input_path}")
     
-    # Überprüfe, ob die Datei existiert
     if not os.path.exists(input_path):
         raise FileNotFoundError(f"Die Datei wurde nicht gefunden: {input_path}")
     print(f"[INFO] Datei gefunden: {input_path}")
     
-    # Lade die Präsentation
     print("[INFO] Lade PPTX-Präsentation...")
     prs = Presentation(input_path)
     print("[INFO] Präsentation erfolgreich geladen.")
     
-    translator = Translator()
-    
-    # Iteriere über alle Slides
     print("[INFO] Beginne mit der Verarbeitung der Folien...")
     for slide_index, slide in enumerate(prs.slides, start=1):
         print(f"[INFO] Verarbeite Folie {slide_index}/{len(prs.slides)}")
-        # Iteriere über alle Formen (shapes) der Slide
         for shape_index, shape in enumerate(slide.shapes, start=1):
             if shape.has_text_frame:
                 print(f"[INFO] Verarbeite Text in Shape {shape_index} auf Folie {slide_index}")
                 for paragraph_index, paragraph in enumerate(shape.text_frame.paragraphs, start=1):
                     for run_index, run in enumerate(paragraph.runs, start=1):
                         original_text = run.text
-                        if original_text.strip():  # Nur nicht-leeren Text übersetzen
+                        if original_text.strip():
                             print(f"[DEBUG] Ursprünglicher Text (Folie {slide_index}, Shape {shape_index}, Absatz {paragraph_index}, Run {run_index}): {original_text}")
-                            try:
-                                translated = translator.translate(original_text, dest=target_language)
-                                print(f"[DEBUG] Übersetzter Text: {translated.text}")
-                                run.text = translated.text
-                            except Exception as e:
-                                print(f"[ERROR] Fehler bei der Übersetzung von '{original_text}': {e}")
+                            translated_text = translate_text(original_text, target_language)
+                            print(f"[DEBUG] Übersetzter Text: {translated_text}")
+                            run.text = translated_text
     
-    # Bestimme den Ausgabe-Pfad, falls nicht explizit angegeben
     if not output_path:
         base, ext = os.path.splitext(input_path)
         output_path = f"{base}_translated{ext}"

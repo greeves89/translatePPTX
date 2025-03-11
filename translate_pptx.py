@@ -43,10 +43,28 @@ else:
 def translate_text(text: str, target_language: str) -> str:
     if not text.strip():
         return text
+
+    # Mapping: Falls ein veralteter oder unpassender Sprachcode eingegeben wird, auf einen unterstützten Code umstellen.
+    # Hier sind einige Sprachen, die im Euroraum häufig verwendet werden.
+    deepl_language_map = {
+        "en": "EN-GB",   # Für Englisch in Europa wird oft EN-GB genutzt.
+        "de": "DE",
+        "fr": "FR",
+        "es": "ES",
+        "it": "IT",
+        "nl": "NL",
+        "pt": "PT-PT",   # Portugiesisch (europäisch)
+        "sv": "SV",      # Schwedisch
+        "da": "DA",      # Dänisch
+        "fi": "FI",      # Finnisch
+        "no": "NO",      # Norwegisch
+        "pl": "PL"       # Polnisch
+    }
+    
     if use_deepl:
+        target = deepl_language_map.get(target_language.lower(), target_language.upper())
         try:
-            # DeepL erwartet Sprachcodes in Großbuchstaben (z.B. "EN", "DE")
-            result = translator.translate_text(text, target_lang=target_language.upper())
+            result = translator.translate_text(text, target_lang=target)
             return result.text
         except Exception as e:
             print(f"[ERROR] DeepL-Übersetzung fehlgeschlagen für '{text}': {e}")

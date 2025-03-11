@@ -1,142 +1,47 @@
+Übersetzungs-PPTX-Tool
+
+Dieses Tool liest eine PPTX-Präsentation seitenweise ein, übersetzt den darin enthaltenen Text mithilfe des Google Übersetzungsdienstes in eine angegebene Zielsprache und speichert die übersetzte Präsentation als neue Datei. Dabei bleiben alle Formatierungen und Inhalte (außer dem Text) erhalten.
+
 Voraussetzungen
-	1.	Python 3 installieren:
-Stelle sicher, dass Python 3 (idealerweise 3.12 oder eine kompatible Version) installiert ist.
-	2.	Benötigte Python-Pakete installieren:
-Installiere die folgenden Pakete via pip:
+	•	Python 3:
+Es wird empfohlen, Python 3.12 oder eine kompatible Version zu verwenden.
+Hinweis: Für Python 3.13 wird ein Dummy-Modul für cgi injiziert, da dieses Modul in Python 3.13 entfernt wurde.
+	•	Benötigte Python-Pakete:
+Installiere folgende Pakete über pip:
+	•	python-pptx
+	•	googletrans==4.0.0rc1
+Beispiel:
 
 pip install python-pptx googletrans==4.0.0rc1
 
-Hinweis:
-	•	Wir nutzen hier googletrans in der Version 4.0.0rc1, da diese Version im Moment am stabilsten arbeitet.
-	•	Falls du in Python 3.13 arbeitest, wird das cgi-Modul nicht mehr mitgeliefert. Das Skript injiziert deshalb einen Dummy, der zumindest eine minimale Funktionalität (z. B. parse_header) bereitstellt.
-
-⸻
-
-Der Code
-
-Speichere den folgenden Code in einer Datei, z. B. translate_pptx.py:
-
-#!/usr/bin/env python3
-import sys
-import types
-import warnings
-
-# Dummy-Injektion für das cgi-Modul in Python 3.13, inkl. minimaler Implementierung von parse_header
-if sys.version_info >= (3, 13):
-    warnings.warn("cgi module removed in Python 3.13; injecting dummy module with parse_header", DeprecationWarning)
-    def parse_header(value):
-        # Eine einfache Implementierung: Teilt den Header in Hauptwert und Parameter
-        parts = value.split(";")
-        key = parts[0].strip()
-        params = {}
-        for param in parts[1:]:
-            if "=" in param:
-                k, v = param.split("=", 1)
-                params[k.strip()] = v.strip()
-        return key, params
-
-    cgi_dummy = types.ModuleType("cgi")
-    cgi_dummy.parse_header = parse_header
-    sys.modules["cgi"] = cgi_dummy
-
-import os
-from pptx import Presentation
-from googletrans import Translator
-
-def translate_pptx(input_path: str, target_language: str, output_path: str = None):
-    """
-    Liest eine PPTX-Datei ein, übersetzt den Text aller Slides in die angegebene Sprache und speichert eine neue Datei.
-    
-    Args:
-        input_path: Pfad zur Eingabe-PPTX-Datei.
-        target_language: Sprachcode der Zielsprache (z. B. "de" für Deutsch, "en" für Englisch).
-        output_path: Optionaler Pfad zur Ausgabedatei. Falls nicht angegeben, wird der Dateiname mit "_translated" ergänzt.
-    """
-    print(f"[INFO] Starte Übersetzung der Datei: {input_path}")
-    
-    # Überprüfe, ob die Datei existiert
-    if not os.path.exists(input_path):
-        raise FileNotFoundError(f"Die Datei wurde nicht gefunden: {input_path}")
-    print(f"[INFO] Datei gefunden: {input_path}")
-    
-    # Lade die Präsentation
-    print("[INFO] Lade PPTX-Präsentation...")
-    prs = Presentation(input_path)
-    print("[INFO] Präsentation erfolgreich geladen.")
-    
-    translator = Translator()
-    
-    # Iteriere über alle Slides
-    print("[INFO] Beginne mit der Verarbeitung der Folien...")
-    for slide_index, slide in enumerate(prs.slides, start=1):
-        print(f"[INFO] Verarbeite Folie {slide_index}/{len(prs.slides)}")
-        # Iteriere über alle Formen (shapes) der Slide
-        for shape_index, shape in enumerate(slide.shapes, start=1):
-            if shape.has_text_frame:
-                print(f"[INFO] Verarbeite Text in Shape {shape_index} auf Folie {slide_index}")
-                for paragraph_index, paragraph in enumerate(shape.text_frame.paragraphs, start=1):
-                    for run_index, run in enumerate(paragraph.runs, start=1):
-                        original_text = run.text
-                        if original_text.strip():  # Nur nicht-leeren Text übersetzen
-                            print(f"[DEBUG] Ursprünglicher Text (Folie {slide_index}, Shape {shape_index}, Absatz {paragraph_index}, Run {run_index}): {original_text}")
-                            try:
-                                translated = translator.translate(original_text, dest=target_language)
-                                print(f"[DEBUG] Übersetzter Text: {translated.text}")
-                                run.text = translated.text
-                            except Exception as e:
-                                print(f"[ERROR] Fehler bei der Übersetzung von '{original_text}': {e}")
-    
-    # Bestimme den Ausgabe-Pfad, falls nicht explizit angegeben
-    if not output_path:
-        base, ext = os.path.splitext(input_path)
-        output_path = f"{base}_translated{ext}"
-    print(f"[INFO] Speichere die übersetzte Datei unter: {output_path}")
-    
-    prs.save(output_path)
-    print(f"[INFO] Übersetzte Datei erfolgreich gespeichert: {output_path}")
-
-if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("Usage: python translate_pptx.py <input_file.pptx> <target_language>")
-        sys.exit(1)
-
-    input_file = sys.argv[1]
-    target_lang = sys.argv[2]
-    print(f"[INFO] Aufruf mit Datei: {input_file} und Zielsprache: {target_lang}")
-    translate_pptx(input_file, target_lang)
 
 
+Installation
+	1.	Klone oder lade das Repository herunter.
+	2.	Stelle sicher, dass die erforderlichen Pakete installiert sind.
+	3.	Platziere die PPTX-Datei, die übersetzt werden soll, an einem zugänglichen Ort.
 
-⸻
+Nutzung
 
-Anleitung zur Ausführung
-	1.	Speichere den Code:
-Lege die Datei translate_pptx.py in einem Ordner ab.
-	2.	Prüfe den Dateipfad:
-Stelle sicher, dass die PPTX-Datei, die du übersetzen möchtest, existiert und der Pfad korrekt ist. Beispiel:
+Das Tool wird über die Kommandozeile aufgerufen. Der Pfad zur Eingabe-PPTX-Datei sowie der Sprachcode der Zielsprache (z. B. en für Englisch oder de für Deutsch) müssen als Parameter übergeben werden.
 
-/Users/deinBenutzername/Desktop/Produktklassifizierung.pptx
+Beispielaufruf
 
+python3 translate_pptx.py '/Pfad/zur/Datei.pptx' en
 
-	3.	Ausführung über die Kommandozeile:
-Öffne ein Terminal und navigiere in das Verzeichnis, in dem translate_pptx.py liegt.
-Führe den Befehl aus:
+Nach der Ausführung wird die übersetzte Präsentation im selben Verzeichnis abgelegt. Der Dateiname wird standardmäßig um den Suffix _translated ergänzt.
 
-python3 translate_pptx.py '/Users/deinBenutzername/Desktop/Produktklassifizierung.pptx' en
+Log-Ausgaben
 
-Dabei steht en für die Zielsprache (Englisch). Du kannst diesen Parameter auch anpassen (z. B. de für Deutsch).
-
-	4.	Überprüfung der Ausgabedatei:
-Nach erfolgreicher Ausführung wird die übersetzte Präsentation im gleichen Verzeichnis gespeichert. Der Dateiname wird standardmäßig um _translated ergänzt (z. B. Produktklassifizierung_translated.pptx).
-	5.	Log-Ausgaben beobachten:
-Während der Ausführung zeigt das Skript zahlreiche Log-Meldungen an, die den Fortschritt, verarbeitete Folien und eventuelle Übersetzungsfehler (falls vorhanden) ausgeben.
-
-⸻
+Während der Ausführung gibt das Tool verschiedene Log-Meldungen aus, die den Fortschritt (wie z. B. geladene Datei, verarbeitete Folien, Übersetzungsergebnisse) dokumentieren. Diese Informationen können hilfreich sein, um Fehler zu identifizieren oder den Ablauf zu überwachen.
 
 Wichtige Hinweise
 	•	Internetverbindung:
-Der Übersetzer (googletrans) benötigt eine aktive Internetverbindung, um die Übersetzungsanfragen an den Google-Dienst zu senden.
+Da das Tool den Google Übersetzungsdienst verwendet, ist eine aktive Internetverbindung erforderlich.
 	•	API-Limits:
-Beachte, dass Übersetzungsdienste API-Limits oder Rate-Limiting haben können. Für große Präsentationen kann es zu Verzögerungen kommen.
-	•	Python-Version:
-In Python 3.13 wird das cgi-Modul nicht mehr bereitgestellt. Der Code injiziert deshalb einen Dummy, um die Abhängigkeit zu befriedigen. Dieser Dummy bietet nur eine minimale Implementierung und ist als Workaround gedacht.
+Beachte, dass Übersetzungsdienste API-Limits oder Rate-Limiting haben können, was bei großen Präsentationen zu Verzögerungen führen kann.
+	•	Cloud-Dateien:
+Wenn die PPTX-Datei auf einem Cloud-Speicher liegt, stelle sicher, dass sie lokal verfügbar und vollständig synchronisiert ist.
+	•	Python 3.13:
+In Python 3.13 wurde das cgi-Modul entfernt. Das Tool injiziert einen Dummy, der eine minimale Implementierung von parse_header bietet. Dies ist als Workaround gedacht, bis offizielle Updates von den verwendeten Bibliotheken verfügbar sind.
+

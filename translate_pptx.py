@@ -7,12 +7,17 @@ import concurrent.futures
 import threading
 import time
 from dotenv import load_dotenv
-from tqdm import tqdm  # Fortschrittsbalken
+from tqdm import tqdm
 
 # .env laden
 load_dotenv()
 
-# Dummy-Injektion für das cgi-Modul in Python 3.13, inkl. minimaler Implementierung von parse_header
+# Optionen aus der .env
+use_local_translation = os.getenv("LOCAL_TRANSLATION", "False").lower() == "true"
+deepl_api_key = os.getenv("DEEPL_API_KEY")
+use_deepl = bool(deepl_api_key and deepl_api_key.strip())
+
+# Dummy-Injektion für das cgi-Modul in Python 3.13
 if sys.version_info >= (3, 13):
     warnings.warn("cgi module removed in Python 3.13; injecting dummy module with parse_header", DeprecationWarning)
     def parse_header(value):
@@ -34,7 +39,6 @@ class RateLimiter:
         self.rate = rate
         self.lock = threading.Lock()
         self.last_call = 0
-
     def wait(self):
         with self.lock:
             now = time.time()
@@ -44,13 +48,9 @@ class RateLimiter:
                 time.sleep(wait_time)
             self.last_call = time.time()
 
-# Globaler RateLimiter (2 req/s)
 rate_limiter = RateLimiter(rate=2)
 
-# Translator-Auswahl: DeepL falls vorhanden, ansonsten Google Translate
-deepl_api_key = os.getenv("DEEPL_API_KEY")
-use_deepl = bool(deepl_api_key and deepl_api_key.strip())
-
+# Übersetzungsdienste: Falls Deepl API-Key vorhanden ist, wird Deepl genutzt, ansonsten Google Translate.
 if use_deepl:
     import deepl
     translator_deepl = deepl.Translator(deepl_api_key)
@@ -60,46 +60,79 @@ else:
     translator_google = GoogleTranslator()
     print("[INFO] Kein DeepL API-Key gefunden. Nutze Google Translate für die Übersetzung.")
 
+# Lade lokale Übersetzung (M2M-100) unconditionally für Fallback und für den lokalen Modus.
+from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
+from langdetect import detect
+print("[INFO] Lade M2M-100 Modell für lokale Übersetzung (Fallback) ...")
+model_name = "facebook/m2m100_418M"
+tokenizer_local = M2M100Tokenizer.from_pretrained(model_name)
+model_local = M2M100ForConditionalGeneration.from_pretrained(model_name)
+
+# Funktion für lokale Übersetzung via M2M-100 (mit automatischer Spracherkennung)
+def translate_with_local(text: str, target_language: str) -> str:
+    try:
+        # Auto-Detect der Quellsprache
+        from langdetect import detect
+        src_lang = detect(text)
+    except Exception as e:
+        print(f"[WARNING] Automatische Spracherkennung fehlgeschlagen: {e}")
+        src_lang = "en"  # Fallback: Englisch
+    try:
+        tokenizer_local.src_lang = src_lang
+        encoded = tokenizer_local(text, return_tensors="pt", truncation=True)
+        # Für M2M-100 muss forced_bos_token_id gesetzt werden.
+        target_code = target_language.lower()  # M2M100 erwartet zumeist ISO-Codes in Kleinbuchstaben
+        forced_bos_token_id = tokenizer_local.get_lang_id(target_code)
+        generated_tokens = model_local.generate(**encoded, forced_bos_token_id=forced_bos_token_id)
+        translated = tokenizer_local.decode(generated_tokens[0], skip_special_tokens=True)
+        return translated
+    except Exception as e:
+        print(f"[ERROR] Lokale Übersetzung (M2M-100) fehlgeschlagen für '{text}': {e}")
+        return text
+
 # Funktion, die Übersetzungen mit Wiederholungslogik durchführt
-def translate_text_retry(text: str, target_language: str, max_retries=3, initial_delay=1):
+def translate_text_retry(text: str, target_language: str, max_retries=3, initial_delay=1) -> str:
     delay = initial_delay
     for attempt in range(1, max_retries + 1):
-        # Vor jeder Übersetzungsanfrage die Rate begrenzen
         rate_limiter.wait()
         try:
-            # Mapping für DeepL
-            deepl_language_map = {
-                "en": "EN-GB",   # Englisch (britisch)
-                "de": "DE",
-                "fr": "FR",
-                "es": "ES",
-                "it": "IT",
-                "nl": "NL",
-                "pt": "PT-PT",
-                "sv": "SV",
-                "da": "DA",
-                "fi": "FI",
-                "no": "NO",
-                "pl": "PL"
-            }
-            if use_deepl:
-                target_code = deepl_language_map.get(target_language.lower(), target_language.upper())
-                result = translator_deepl.translate_text(text, target_lang=target_code)
-                return result.text
+            # Falls lokaler Modus aktiviert ist, nutze lokal
+            if use_local_translation:
+                return translate_with_local(text, target_language)
             else:
-                result = translator_google.translate(text, dest=target_language)
-                return result.text
+                # Online Übersetzung: Wenn Deepl vorhanden, nutze Deepl, ansonsten Google
+                deepl_language_map = {
+                    "en": "EN-GB",
+                    "de": "DE",
+                    "fr": "FR",
+                    "es": "ES",
+                    "it": "IT",
+                    "nl": "NL",
+                    "pt": "PT-PT",
+                    "sv": "SV",
+                    "da": "DA",
+                    "fi": "FI",
+                    "no": "NO",
+                    "pl": "PL"
+                }
+                if use_deepl:
+                    target_code = deepl_language_map.get(target_language.lower(), target_language.upper())
+                    result = translator_deepl.translate_text(text, target_lang=target_code)
+                    return result.text
+                else:
+                    result = translator_google.translate(text, dest=target_language)
+                    return result.text
         except Exception as e:
-            # Falls es einen "Too many requests" Fehler gibt, versuche es erneut
             err_str = str(e)
             if "Too many requests" in err_str and attempt < max_retries:
                 print(f"[WARNING] Übersetzungsversuch {attempt} für '{text[:30]}...' fehlgeschlagen (Too many requests). Warte {delay} Sekunden und versuche es erneut.")
                 time.sleep(delay)
-                delay *= 2  # Exponentielles Backoff
+                delay *= 2
             else:
-                print(f"[ERROR] Übersetzung fehlgeschlagen für '{text}': {e}")
-                return text  # Rückgabe Originaltext bei dauerhaftem Fehler
-    return text  # Falls alle Versuche scheitern
+                print(f"[ERROR] Online-Übersetzung fehlgeschlagen für '{text}': {e}")
+    # Fallback: Immer lokale Übersetzung versuchen
+    print(f"[WARNING] Fallback auf lokale Übersetzung (M2M-100) für '{text[:30]}...'")
+    return translate_with_local(text, target_language)
 
 def translate_text(text: str, target_language: str) -> str:
     return translate_text_retry(text, target_language)
@@ -293,7 +326,6 @@ if __name__ == '__main__':
     if len(sys.argv) < 3:
         print("Usage: python translate_file.py <input_file> <target_language>")
         sys.exit(1)
-
     input_file = sys.argv[1]
     target_lang = sys.argv[2]
     print(f"[INFO] Aufruf mit Datei: {input_file} und Zielsprache: {target_lang}")

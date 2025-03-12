@@ -7,3 +7,7 @@ openpyxl
 pdfminer.six
 textract
 tqdm
+transformers
+sentencepiece
+torch
+langdetect

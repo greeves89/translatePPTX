@@ -4,6 +4,20 @@
 # und führt dann die Installation der Python-Abhängigkeiten aus der requirements.txt durch.
 # Voraussetzung: Homebrew muss installiert sein.
 
+# Funktion, um interaktiv nachzufragen, ob ein Paket installiert werden soll.
+prompt_install() {
+    pkg_name="$1"
+    install_cmd="$2"
+    read -p "$pkg_name ist nicht installiert. Möchtest du es jetzt installieren? [y/N]: " answer
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        echo "Installiere $pkg_name..."
+        eval "$install_cmd"
+    else
+        echo "$pkg_name wird benötigt. Das Skript wird beendet."
+        exit 1
+    fi
+}
+
 # Prüfe, ob Homebrew installiert ist
 if ! command -v brew &> /dev/null; then
     echo "Homebrew ist nicht installiert. Bitte installiere Homebrew von https://brew.sh und führe das Skript erneut aus."
@@ -12,18 +26,23 @@ fi
 
 echo "Homebrew gefunden."
 
-# Installiere cmake, falls nicht vorhanden
+# Prüfe, ob Python3 installiert ist
+if ! command -v python3 &> /dev/null; then
+    prompt_install "Python3" "brew install python"
+else
+    echo "Python3 ist bereits installiert."
+fi
+
+# Prüfe und installiere cmake, falls nicht vorhanden
 if ! command -v cmake &> /dev/null; then
-    echo "Installiere cmake..."
-    brew install cmake
+    prompt_install "cmake" "brew install cmake"
 else
     echo "cmake ist bereits installiert."
 fi
 
-# Installiere coreutils, falls nproc nicht gefunden wird
+# Prüfe und installiere coreutils, falls nproc nicht gefunden wird
 if ! command -v nproc &> /dev/null; then
-    echo "Installiere coreutils (liefert nproc)..."
-    brew install coreutils
+    prompt_install "coreutils (liefert nproc)" "brew install coreutils"
 else
     echo "nproc (coreutils) ist bereits installiert."
 fi
@@ -36,5 +55,5 @@ python3 -m pip install --upgrade pip
 echo "Installiere Python-Abhängigkeiten..."
 pip install -r requirements.txt --break-system-packages
 
-echo "Prepare.sh abgeschlossen. Alle erforderlichen Abhängigkeiten sind installiert."
+echo "prepare.sh abgeschlossen. Alle erforderlichen Abhängigkeiten sind installiert."
 echo "Du kannst jetzt das Übersetzungsskript starten (z. B. 'python3 translate_file.py <input_file> <target_language>')."
